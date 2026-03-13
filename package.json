@@ -1,0 +1,26 @@
+{
+  "name": "turing-demo-setup",
+  "version": "1.0.0",
+  "description": "Automated demo environment setup for Turing Labs R&D formulation platform",
+  "type": "module",
+  "scripts": {
+    "setup": "tsx src/index.ts setup",
+    "discover": "tsx src/index.ts discover",
+    "validate": "tsx src/index.ts validate",
+    "cleanup": "tsx src/index.ts cleanup",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "playwright": "^1.42.0",
+    "commander": "^12.0.0",
+    "pino": "^8.19.0",
+    "pino-pretty": "^11.0.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0"
+  }
+}
