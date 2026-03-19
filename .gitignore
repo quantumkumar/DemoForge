@@ -6,3 +6,8 @@ reports/
 .tmp/
 *.tsbuildinfo
 tmp/
+
+# Next.js
+.next/
+apps/web/.next/
+apps/web/node_modules/
