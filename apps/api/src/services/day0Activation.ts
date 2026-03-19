@@ -170,7 +170,7 @@ export async function runDay0Activation(config: Day0Config): Promise<void> {
 
     // Update Supabase activation status
     await fetch(
-      `${config.supabaseUrl}/rest/v1/product_activations?id=eq.${config.jobId}`,
+      `${config.supabaseUrl}/rest/v1/org_activations?job_id=eq.${config.jobId}`,
       {
         method: 'PATCH',
         headers: {
@@ -181,7 +181,6 @@ export async function runDay0Activation(config: Day0Config): Promise<void> {
         },
         body: JSON.stringify({
           status: 'completed',
-          completed_at: new Date().toISOString(),
           result_summary: result,
         }),
       },
@@ -224,7 +223,7 @@ export async function runDay0Activation(config: Day0Config): Promise<void> {
     // Update status to failed
     try {
       await fetch(
-        `${config.supabaseUrl}/rest/v1/product_activations?id=eq.${config.jobId}`,
+        `${config.supabaseUrl}/rest/v1/org_activations?job_id=eq.${config.jobId}`,
         {
           method: 'PATCH',
           headers: {
