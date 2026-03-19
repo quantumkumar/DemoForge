@@ -3,7 +3,8 @@ import { createHmac, timingSafeEqual } from 'crypto';
 /**
  * Verify HMAC-SHA256 signature on an incoming webhook payload.
  * Signature format: "sha256=<hex>"
- * Signed message: "<timestamp>.<rawBody>"
+ * Signed message: raw body only (matches platform dispatcher's signPayload)
+ * Timestamp is validated separately for replay protection.
  */
 export function verifyHmac(
   body: Buffer,
@@ -13,8 +14,15 @@ export function verifyHmac(
 ): boolean {
   if (!signature.startsWith('sha256=')) return false;
 
+  // Validate timestamp is within 5 minutes (replay protection)
+  const timestampDate = new Date(timestamp);
+  const now = new Date();
+  const diffMs = Math.abs(now.getTime() - timestampDate.getTime());
+  if (diffMs > 5 * 60 * 1000) return false;
+
+  // HMAC is computed over raw body only (matches platform dispatcher)
   const expectedSig = createHmac('sha256', secret)
-    .update(`${timestamp}.${body.toString()}`)
+    .update(body)
     .digest('hex');
 
   const actualSig = signature.slice(7); // strip "sha256=" prefix

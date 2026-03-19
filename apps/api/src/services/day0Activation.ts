@@ -1,4 +1,3 @@
-import { createHmac } from 'crypto';
 import { JSDOM } from 'jsdom';
 
 interface Day0Config {
@@ -188,39 +187,32 @@ export async function runDay0Activation(config: Day0Config): Promise<void> {
       },
     );
 
-    // Callback to platform
-    if (config.callbackUrl) {
-      const platformSecret = process.env.ONEBASTION_PLATFORM_SECRET || '';
+    // Callback to platform (flat JSON + Bearer auth)
+    if (config.callbackUrl && config.apiKey) {
       const callbackBody = JSON.stringify({
-        specversion: '1.0',
-        id: crypto.randomUUID(),
-        source: 'demoforge',
-        type: 'activation.completed',
-        time: new Date().toISOString(),
-        data: {
-          org_id: config.orgId,
-          product_id: 'demoforge',
-          status: 'completed',
-          result_summary: result,
-        },
+        org_id: config.orgId,
+        product_id: 'demoforge',
+        status: 'completed',
+        result_summary: result,
       });
 
-      const ts = String(Math.floor(Date.now() / 1000));
-      const sig = createHmac('sha256', platformSecret)
-        .update(`${ts}.${callbackBody}`)
-        .digest('hex');
-
-      await fetch(config.callbackUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-OneBastion-Signature': `sha256=${sig}`,
-          'X-OneBastion-Timestamp': ts,
-        },
-        body: callbackBody,
-      }).catch((err: unknown) =>
-        console.error('Callback failed:', err),
-      );
+      try {
+        const cbResp = await fetch(config.callbackUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${config.apiKey}`,
+          },
+          body: callbackBody,
+        });
+        if (!cbResp.ok) {
+          console.error(
+            `Callback returned ${cbResp.status}: ${await cbResp.text().catch(() => '')}`,
+          );
+        }
+      } catch (err: unknown) {
+        console.error('Callback failed:', err);
+      }
     }
 
     console.log(`Day 0 activation complete for org ${config.orgId}`);
