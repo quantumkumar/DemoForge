@@ -181,7 +181,7 @@ export const activateRoutes: FastifyPluginAsync = async (fastify) => {
         product_id: productId,
         idempotency_key: idempotencyKey || null,
         status: 'running',
-        config: stackConfig || null,
+        stack: stackConfig || null,
         created_at: new Date().toISOString(),
       });
 
