@@ -67,12 +67,21 @@ export const activateRoutes: FastifyPluginAsync = async (fastify) => {
 
     // ---------------------------------------------------------------
     // 2. Reject stale timestamps (> 5 minutes)
+    // Supports both ISO 8601 and Unix timestamp formats.
     // ---------------------------------------------------------------
-    const tsSeconds = parseInt(timestamp, 10);
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const MAX_AGE_SECONDS = 300; // 5 minutes
+    const MAX_AGE_MS = 5 * 60 * 1000;
+    let timestampMs: number;
 
-    if (Number.isNaN(tsSeconds) || Math.abs(nowSeconds - tsSeconds) > MAX_AGE_SECONDS) {
+    const tsInt = parseInt(timestamp, 10);
+    if (!Number.isNaN(tsInt) && String(tsInt) === timestamp.trim()) {
+      // Unix timestamp (seconds)
+      timestampMs = tsInt * 1000;
+    } else {
+      // ISO 8601 string
+      timestampMs = new Date(timestamp).getTime();
+    }
+
+    if (Number.isNaN(timestampMs) || Math.abs(Date.now() - timestampMs) > MAX_AGE_MS) {
       return reply.status(401).send({
         error: 'Unauthorized',
         error_code: 'STALE_TIMESTAMP',
