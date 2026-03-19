@@ -10,12 +10,13 @@
   "dependencies": {
     "fastify": "^4.28.0",
     "@fastify/cors": "^9.0.0",
-    "playwright": "^1.42.0",
+    "jsdom": "^24.0.0",
     "@supabase/supabase-js": "^2.39.0"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
     "tsx": "^4.7.0",
-    "@types/node": "^20.11.0"
+    "@types/node": "^20.11.0",
+    "@types/jsdom": "^21.1.0"
   }
 }

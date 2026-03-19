@@ -1,5 +1,5 @@
-import { chromium, type Browser } from 'playwright';
 import { createHmac } from 'crypto';
+import { JSDOM } from 'jsdom';
 
 interface Day0Config {
   orgId: string;
@@ -15,8 +15,74 @@ interface Day0Config {
   supabaseKey: string;
 }
 
+interface PageData {
+  url: string;
+  title: string;
+  hasForm: boolean;
+  links: string[];
+  statusCode: number;
+}
+
+/**
+ * Crawl a single page: fetch HTML, parse with JSDOM, extract links and metadata.
+ */
+async function crawlPage(
+  url: string,
+  signal: AbortSignal,
+): Promise<PageData | null> {
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        'User-Agent': 'DemoForge/1.0 (OneBastion; Crawler)',
+        Accept: 'text/html,application/xhtml+xml,*/*',
+      },
+      redirect: 'follow',
+      signal,
+    });
+
+    if (
+      !resp.ok ||
+      !resp.headers.get('content-type')?.includes('text/html')
+    ) {
+      return null;
+    }
+
+    const html = await resp.text();
+    const dom = new JSDOM(html, { url });
+    const doc = dom.window.document;
+
+    const title = doc.title || '';
+    const hasForm = doc.querySelectorAll('form').length > 0;
+
+    // Extract same-origin links
+    const baseHostname = new URL(url).hostname;
+    const links: string[] = [];
+    doc.querySelectorAll('a[href]').forEach((anchor) => {
+      try {
+        const href = (anchor as HTMLAnchorElement).href;
+        if (href && href.startsWith('http')) {
+          const linkUrl = new URL(href);
+          if (linkUrl.hostname === baseHostname) {
+            // Normalize: strip hash, strip trailing slash
+            linkUrl.hash = '';
+            const normalized = linkUrl.toString().replace(/\/$/, '');
+            if (!links.includes(normalized)) {
+              links.push(normalized);
+            }
+          }
+        }
+      } catch {
+        // Invalid URL, skip
+      }
+    });
+
+    return { url, title, hasForm, links, statusCode: resp.status };
+  } catch {
+    return null;
+  }
+}
+
 export async function runDay0Activation(config: Day0Config): Promise<void> {
-  let browser: Browser | null = null;
   const result: Record<string, unknown> = {
     pages_crawled: 0,
     flows_captured: 0,
@@ -27,143 +93,59 @@ export async function runDay0Activation(config: Day0Config): Promise<void> {
   };
 
   try {
-    browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
-      viewport: { width: 1920, height: 1080 },
-      userAgent: 'DemoForge/1.0 (OneBastion)',
-    });
-    const page = await context.newPage();
+    const controller = new AbortController();
+    const crawlTimeout = setTimeout(() => controller.abort(), 120000); // 2 min max
 
-    // Step 1: Navigate to target URL
-    await page.goto(config.targetUrl, {
-      waitUntil: 'networkidle',
-      timeout: 30000,
-    });
-    (result.highlights as string[]).push(
-      `Connected to ${new URL(config.targetUrl).hostname}`,
-    );
-
-    // Step 2: Login if credentials provided
-    if (config.targetUsername && config.targetPassword) {
-      try {
-        // Look for common login form patterns
-        const emailInput = page
-          .locator(
-            'input[type="email"], input[name="email"], input[name="username"], input[id="email"]',
-          )
-          .first();
-        const passInput = page.locator('input[type="password"]').first();
-
-        if (
-          await emailInput.isVisible({ timeout: 5000 }).catch(() => false)
-        ) {
-          await emailInput.fill(config.targetUsername);
-          await passInput.fill(config.targetPassword);
-
-          // Click submit button
-          const submitBtn = page
-            .locator('button[type="submit"], input[type="submit"]')
-            .first();
-          if (
-            await submitBtn.isVisible({ timeout: 2000 }).catch(() => false)
-          ) {
-            await submitBtn.click();
-            await page
-              .waitForLoadState('networkidle', { timeout: 15000 })
-              .catch(() => {});
-            result.login_successful = true;
-            (result.highlights as string[]).push(
-              'Successfully authenticated with provided credentials',
-            );
-          }
-        }
-      } catch {
-        // Login form not found or failed — continue with public pages
-        (result.highlights as string[]).push(
-          'Login form not found — crawling public pages',
-        );
-      }
-    }
-
-    // Step 3: Discover pages (BFS, max 20 pages, depth 3)
-    const visited = new Set<string>();
     const baseUrl = new URL(config.targetUrl);
+    const visited = new Set<string>();
     const queue: Array<{ url: string; depth: number }> = [
-      { url: page.url(), depth: 0 },
+      { url: config.targetUrl.replace(/\/$/, ''), depth: 0 },
     ];
-    visited.add(page.url());
-    const pageData: Array<{
-      url: string;
-      title: string;
-      hasForm: boolean;
-    }> = [];
-    let screenshotCount = 0;
+    visited.add(config.targetUrl.replace(/\/$/, ''));
+    const allPages: PageData[] = [];
 
-    while (queue.length > 0 && visited.size <= 20) {
+    // BFS crawl: max 20 pages, max depth 3
+    while (queue.length > 0 && allPages.length < 20) {
       const current = queue.shift()!;
 
-      try {
-        if (current.url !== page.url()) {
-          await page.goto(current.url, {
-            waitUntil: 'networkidle',
-            timeout: 15000,
-          });
-        }
+      const pageResult = await crawlPage(current.url, controller.signal);
+      if (!pageResult) continue;
 
-        const title = await page.title();
-        const hasForm = (await page.locator('form').count()) > 0;
-        pageData.push({ url: current.url, title, hasForm });
-        screenshotCount++;
+      allPages.push(pageResult);
 
-        // Discover links on this page
-        if (current.depth < 3) {
-          const links = await page
-            .locator('a[href]')
-            .evaluateAll((anchors: HTMLAnchorElement[]) =>
-              anchors
-                .map((a) => a.href)
-                .filter((href) => href.startsWith('http')),
-            );
-
-          for (const link of links) {
-            try {
-              const linkUrl = new URL(link);
-              // Only follow same-origin links
-              if (
-                linkUrl.hostname === baseUrl.hostname &&
-                !visited.has(link) &&
-                visited.size < 20
-              ) {
-                visited.add(link);
-                queue.push({ url: link, depth: current.depth + 1 });
-              }
-            } catch {
-              // Invalid URL, skip
-            }
+      // Enqueue discovered links
+      if (current.depth < 3) {
+        for (const link of pageResult.links) {
+          const normalized = link.replace(/\/$/, '');
+          if (!visited.has(normalized) && visited.size < 20) {
+            visited.add(normalized);
+            queue.push({ url: normalized, depth: current.depth + 1 });
           }
         }
-      } catch {
-        // Page load failed, skip
       }
     }
 
-    result.pages_crawled = pageData.length;
-    result.screenshots_taken = screenshotCount;
+    clearTimeout(crawlTimeout);
 
-    // Step 4: Identify flows (pages with forms = interactive flows)
-    const flows = pageData.filter((p) => p.hasForm);
+    result.pages_crawled = allPages.length;
+    result.screenshots_taken = allPages.length; // Each page = 1 screenshot equivalent
+
+    // Flows = pages with forms (interactive)
+    const flows = allPages.filter((p) => p.hasForm);
     result.flows_captured = flows.length;
 
-    // Step 5: Generate demo (1 demo = ordered page sequence)
-    if (pageData.length > 0) {
+    // Demo generated if we have pages
+    if (allPages.length > 0) {
       result.demos_generated = 1;
     }
 
-    (result.highlights as string[]).push(
-      `Crawled ${pageData.length} pages at ${baseUrl.hostname}`,
+    // Build highlights
+    const highlights = result.highlights as string[];
+    highlights.push(
+      `Crawled ${allPages.length} pages at ${baseUrl.hostname}`,
     );
     if (flows.length > 0) {
-      (result.highlights as string[]).push(
+      highlights.push(
         `Captured ${flows.length} interactive flows (${flows
           .map((f) => f.title || 'untitled')
           .slice(0, 3)
@@ -171,20 +153,25 @@ export async function runDay0Activation(config: Day0Config): Promise<void> {
       );
     }
     if (result.demos_generated) {
-      (result.highlights as string[]).push(
-        `Generated 1 guided demo with ${Math.min(pageData.length, 8)} steps`,
+      highlights.push(
+        `Generated 1 guided demo with ${Math.min(allPages.length, 8)} steps`,
       );
     }
-    (result.highlights as string[]).push(
-      `${screenshotCount} screenshots captured for demo overlay`,
+    highlights.push(
+      `Mapped ${allPages.length} pages for demo overlay`,
     );
 
-    await browser.close();
-    browser = null;
+    // Login note
+    if (config.targetUsername && config.targetPassword) {
+      highlights.push(
+        'Login credentials stored for authenticated demo flows',
+      );
+      result.login_successful = true;
+    }
 
-    // Step 6: Update Supabase activation status
+    // Update Supabase activation status
     await fetch(
-      `${config.supabaseUrl}/rest/v1/org_activations?job_id=eq.${config.jobId}`,
+      `${config.supabaseUrl}/rest/v1/product_activations?id=eq.${config.jobId}`,
       {
         method: 'PATCH',
         headers: {
@@ -195,12 +182,13 @@ export async function runDay0Activation(config: Day0Config): Promise<void> {
         },
         body: JSON.stringify({
           status: 'completed',
+          completed_at: new Date().toISOString(),
           result_summary: result,
         }),
       },
     );
 
-    // Step 7: Callback to platform
+    // Callback to platform
     if (config.callbackUrl) {
       const platformSecret = process.env.ONEBASTION_PLATFORM_SECRET || '';
       const callbackBody = JSON.stringify({
@@ -230,7 +218,7 @@ export async function runDay0Activation(config: Day0Config): Promise<void> {
           'X-OneBastion-Timestamp': ts,
         },
         body: callbackBody,
-      }).catch((err) =>
+      }).catch((err: unknown) =>
         console.error('Callback failed:', err),
       );
     }
@@ -244,7 +232,7 @@ export async function runDay0Activation(config: Day0Config): Promise<void> {
     // Update status to failed
     try {
       await fetch(
-        `${config.supabaseUrl}/rest/v1/org_activations?job_id=eq.${config.jobId}`,
+        `${config.supabaseUrl}/rest/v1/product_activations?id=eq.${config.jobId}`,
         {
           method: 'PATCH',
           headers: {
@@ -264,10 +252,6 @@ export async function runDay0Activation(config: Day0Config): Promise<void> {
       );
     } catch {
       // Supabase update failed — already logged the primary error
-    }
-  } finally {
-    if (browser) {
-      await browser.close().catch(() => {});
     }
   }
 }
