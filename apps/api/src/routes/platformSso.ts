@@ -102,6 +102,7 @@ export const platformSsoRoutes: FastifyPluginAsync = async (fastify) => {
               org_id: payload.org_id,
               org_name: payload.org_name,
               platform_user_id: payload.sub,
+              onebastion_plan: payload.plan || 'starter',
             },
           });
 
@@ -127,6 +128,7 @@ export const platformSsoRoutes: FastifyPluginAsync = async (fastify) => {
               org_id: payload.org_id,
               org_name: payload.org_name,
               platform_user_id: payload.sub,
+              onebastion_plan: payload.plan || 'starter',
             },
           });
 
