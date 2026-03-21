@@ -51,7 +51,7 @@ export default function SettingsPage() {
       }
       if (user) {
         setEmail(user.email || '');
-        setOrgName(user.user_metadata?.org_name || '');
+        setOrgName(user.user_metadata?.org_name || user.user_metadata?.onebastion_org_name || '');
         const saved = user.user_metadata?.demo_settings as Partial<DemoSettings> | undefined;
         if (saved) {
           setSettings({
