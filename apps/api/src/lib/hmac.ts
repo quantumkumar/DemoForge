@@ -41,6 +41,7 @@ export interface PlatformJwtPayload {
   email: string;
   org_id: string;
   org_name: string;
+  plan?: string;
   product_id: string;
   iss: string;
   exp: number;
