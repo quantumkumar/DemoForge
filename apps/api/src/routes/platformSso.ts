@@ -70,72 +70,48 @@ export const platformSsoRoutes: FastifyPluginAsync = async (fastify) => {
     // 5. Find or create user
     let userId: string;
     try {
-      // List users filtered by email
-      const { data: listData, error: listError } =
-        await supabase.auth.admin.listUsers({
-          page: 1,
-          perPage: 1,
+      const userMeta = {
+        org_id: payload.org_id,
+        org_name: payload.org_name,
+        platform_user_id: payload.sub,
+        onebastion_plan: payload.plan || 'starter',
+      };
+
+      // Try to create the user first — if they already exist, Supabase returns an error
+      const { data: createData, error: createError } =
+        await supabase.auth.admin.createUser({
+          email: payload.email,
+          email_confirm: true,
+          user_metadata: userMeta,
         });
 
-      if (listError) {
-        fastify.log.error(
-          { error: listError.message },
-          'Platform SSO: failed to list users',
-        );
-        return reply.status(500).send({
-          error: 'Internal Server Error',
-          error_code: 'USER_LOOKUP_FAILED',
-          message: 'Failed to look up user',
-        });
-      }
-
-      // Search through users for matching email
-      const existingUser = listData.users.find(
-        (u) => u.email === payload.email,
-      );
-
-      if (existingUser) {
-        // Update user metadata to keep org info current
-        const { error: updateError } =
-          await supabase.auth.admin.updateUserById(existingUser.id, {
-            user_metadata: {
-              org_id: payload.org_id,
-              org_name: payload.org_name,
-              platform_user_id: payload.sub,
-              onebastion_plan: payload.plan || 'starter',
-            },
-          });
-
-        if (updateError) {
-          fastify.log.warn(
-            { error: updateError.message, userId: existingUser.id },
-            'Platform SSO: failed to update user metadata (non-fatal)',
-          );
-        }
-
-        userId = existingUser.id;
+      if (createData?.user) {
+        userId = createData.user.id;
         fastify.log.info(
           { userId, email: payload.email },
-          'Platform SSO: existing user found',
+          'Platform SSO: new user created',
         );
       } else {
-        // Create new user
-        const { data: createData, error: createError } =
-          await supabase.auth.admin.createUser({
-            email: payload.email,
-            email_confirm: true,
-            user_metadata: {
-              org_id: payload.org_id,
-              org_name: payload.org_name,
-              platform_user_id: payload.sub,
-              onebastion_plan: payload.plan || 'starter',
-            },
-          });
+        // User likely already exists — look up page by page to find by email
+        let foundUser: { id: string } | undefined;
+        let page = 1;
+        const perPage = 50;
+        while (!foundUser) {
+          const { data: listData, error: listError } =
+            await supabase.auth.admin.listUsers({ page, perPage });
+          if (listError || !listData?.users?.length) break;
+          foundUser = listData.users.find(
+            (u) => u.email === payload.email,
+          );
+          if (listData.users.length < perPage) break;
+          page++;
+          if (page > 100) break; // safety limit
+        }
 
-        if (createError) {
+        if (!foundUser) {
           fastify.log.error(
-            { error: createError.message },
-            'Platform SSO: failed to create user',
+            { error: createError?.message || 'unknown' },
+            'Platform SSO: failed to create or find user',
           );
           return reply.status(500).send({
             error: 'Internal Server Error',
@@ -144,10 +120,14 @@ export const platformSsoRoutes: FastifyPluginAsync = async (fastify) => {
           });
         }
 
-        userId = createData.user.id;
+        // Update existing user metadata
+        await supabase.auth.admin.updateUserById(foundUser.id, {
+          user_metadata: userMeta,
+        });
+        userId = foundUser.id;
         fastify.log.info(
           { userId, email: payload.email },
-          'Platform SSO: new user created',
+          'Platform SSO: existing user found',
         );
       }
     } catch (err) {
