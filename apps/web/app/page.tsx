@@ -10,6 +10,37 @@ export default function Home() {
 
   useEffect(() => {
     const supabase = createClient();
+
+    // SSO handoff code exchange (from OneBastion platform)
+    const ssoCode = new URLSearchParams(window.location.search).get('sso');
+    if (ssoCode) {
+      setSsoInProgress(true);
+      fetch(`https://app.runbastion.com/api/sso/exchange?code=${ssoCode}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data?.access_token || !data?.refresh_token) {
+            setSsoInProgress(false);
+            return;
+          }
+          return supabase.auth.setSession({
+            access_token: data.access_token,
+            refresh_token: data.refresh_token,
+          });
+        })
+        .then(result => {
+          if (result && !result.error && result.data?.session) {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('sso');
+            window.history.replaceState(null, '', url.pathname + url.search);
+            router.replace('/dashboard');
+          } else {
+            setSsoInProgress(false);
+          }
+        })
+        .catch(() => setSsoInProgress(false));
+      return;
+    }
+
     const hash = window.location.hash;
 
     if (hash.includes('access_token')) {
