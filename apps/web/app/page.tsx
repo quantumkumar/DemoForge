@@ -10,30 +10,37 @@ export default function Home() {
 
   useEffect(() => {
     const supabase = createClient();
+    const hash = window.location.hash;
 
-    // Detect SSO magic link landing (hash fragment contains access_token)
-    if (window.location.hash.includes('access_token')) {
+    if (hash.includes('access_token')) {
       setSsoInProgress(true);
+
+      const params = new URLSearchParams(hash.substring(1));
+      const accessToken = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+
+      if (accessToken && refreshToken) {
+        supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+          .then(({ data, error }) => {
+            if (error) {
+              console.error('SSO session error:', error.message);
+              setSsoInProgress(false);
+            } else if (data.session) {
+              window.history.replaceState(null, '', window.location.pathname);
+              router.replace('/dashboard');
+            }
+          });
+      } else {
+        setSsoInProgress(false);
+      }
+      return;
     }
 
-    // Listen for auth state changes — fires when Supabase processes
-    // the hash fragment tokens from a magic link.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
-          router.replace('/dashboard');
-        }
-      },
-    );
-
-    // Also check for existing session (user navigated here while logged in)
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         router.replace('/dashboard');
       }
     });
-
-    return () => { subscription.unsubscribe(); };
   }, [router]);
 
   if (ssoInProgress) {
