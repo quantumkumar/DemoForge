@@ -39,7 +39,10 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith('/api/') ||
     pathname.startsWith('/_next');
 
-  if (!user && !isPublic) {
+  // Allow ?sso= handoff URLs through without auth (SSO will establish the session)
+  const hasSsoCode = request.nextUrl.searchParams.has('sso');
+
+  if (!user && !isPublic && !hasSsoCode) {
     const url = request.nextUrl.clone();
     url.pathname = `${basePath}/login`;
     url.searchParams.set('next', pathname);
