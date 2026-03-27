@@ -15,6 +15,10 @@ const nextConfig = {
             value: "frame-ancestors 'self' https://app.runbastion.com https://*.runbastion.com",
           },
           {
+            key: 'X-Frame-Options',
+            value: 'SAMEORIGIN',
+          },
+          {
             key: 'X-Content-Type-Options',
             value: 'nosniff',
           },
