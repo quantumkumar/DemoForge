@@ -60,6 +60,7 @@ export async function updateSession(request: NextRequest) {
     'Content-Security-Policy',
     "frame-ancestors 'self' https://app.runbastion.com https://*.runbastion.com"
   );
+  supabaseResponse.headers.set('X-Frame-Options', 'ALLOWALL');
 
   return supabaseResponse;
 }
