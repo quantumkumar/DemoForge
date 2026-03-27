@@ -55,5 +55,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Allow the platform to iframe this product
+  supabaseResponse.headers.set(
+    'Content-Security-Policy',
+    "frame-ancestors 'self' https://app.runbastion.com https://*.runbastion.com"
+  );
+
   return supabaseResponse;
 }
